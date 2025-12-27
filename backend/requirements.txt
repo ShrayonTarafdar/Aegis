@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+sqlalchemy
+py-webauthn
+python-multipart
+pillow
+google-generativeai
+python-dotenv
