@@ -1,40 +1,59 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+// Import the real biometric helper
+import { startAuthentication } from "@simplewebauthn/browser";
 
 const Login = () => {
   const [username, setUsername] = useState("");
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = async () => {
-    // 1. Fetch challenge and public key from server
-    const res = await fetch(`http://localhost:8000/challenge/${username}`);
-    const data = await res.json();
+    if (!username) {
+      alert("Please enter your username");
+      return;
+    }
 
-    if (res.ok) {
-      // 2. Simulate biometric "Signature" using local private key
-      const privKey = localStorage.getItem("aegis_priv_key");
-      if (!privKey) {
-        alert("No biometric device found for this user!");
-        return;
+    setLoading(true);
+    try {
+      // --- STEP 1: Get Login Options from Backend ---
+      // This tells the browser which Passkey/Credential ID to look for
+      const optionsResp = await fetch(`http://localhost:8000/webauthn/login/options?username=${username}`);
+      
+      if (!optionsResp.ok) {
+        throw new Error("User not found or biometric device not registered.");
       }
+      
+      const options = await optionsResp.json();
 
-      // In reality, this is handled by the browser's hardware-bound API
-      const mockSignature = "SIGNED_" + btoa(data.challenge + privKey);
+      // --- STEP 2: Trigger the Native Biometric Popup ---
+      // This opens the real TouchID / FaceID / Windows Hello prompt
+      const assertionResponse = await startAuthentication(options);
 
-      const loginRes = await fetch(
-        `http://localhost:8000/login?username=${username}&signature=${mockSignature}`,
-        {
-          method: "POST",
-        }
-      );
+      // --- STEP 3: Verify the hardware response with the Backend ---
+      const verifyResp = await fetch(`http://localhost:8000/webauthn/login/verify?username=${username}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(assertionResponse),
+      });
 
-      if (loginRes.ok) {
-        const userData = await loginRes.json();
-        localStorage.setItem("active_session", JSON.stringify(userData));
+      const result = await verifyResp.json();
+
+      if (verifyResp.ok) {
+        // Success! Store the session exactly like before
+        localStorage.setItem("active_session", JSON.stringify(result));
+        localStorage.setItem("aegis_fake_upi", result.fake_upi);
+        
+        alert("Biometric Identity Verified!");
         navigate("/dashboard");
+      } else {
+        throw new Error(result.detail || "Biometric match failed.");
       }
-    } else {
-      alert("User not found");
+    } catch (error) {
+      console.error("Login Error:", error);
+      alert(error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -48,10 +67,17 @@ const Login = () => {
         <input
           className="form-control mb-3"
           placeholder="Username"
+          value={username}
           onChange={(e) => setUsername(e.target.value)}
         />
-        <button className="btn btn-dark w-100" onClick={handleLogin}>
-          Login with FaceID
+        <button 
+          className="btn btn-dark w-100" 
+          onClick={handleLogin}
+          disabled={loading}
+        >
+          {/* {loading ? "Waiting for Sensor..." : "Login with FaceID / TouchID"} */}
+          <i className="bi bi-person-bounding-box me-2"></i>
+  {loading ? "Verifying..." : "Login with Biometrics (Face / Fingerprint)"}
         </button>
       </div>
     </div>
