@@ -158,13 +158,15 @@ def get_hacker_view(db: Session = Depends(get_db)):
     accounts = db.query(database.Account).all()
     return accounts
 
-frontend_static_dir = os.path.join(os.getcwd(), "frontend", "dist") 
+frontend_static_dir = os.path.join(os.getcwd(), "frontend", "build") 
 
 if os.path.exists(frontend_static_dir):
-    # Serve the CSS/JS files
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_static_dir, "assets")), name="static")
+    # Serve the static assets
+    # Note: Create-React-App puts assets in /static, not /assets
+    static_path = os.path.join(frontend_static_dir, "static")
+    if os.path.exists(static_path):
+        app.mount("/static", StaticFiles(directory=static_path), name="static")
 
-    # Serve the index.html for any route that isn't an API route
     @app.get("/{rest_of_path:path}")
     async def serve_frontend(rest_of_path: str):
         return FileResponse(os.path.join(frontend_static_dir, "index.html"))
