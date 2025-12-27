@@ -4,3 +4,7 @@ __pycache__/
 data/aegis.db
 .venv/
 dist/
+env/
+venv/
+*.pyc
+

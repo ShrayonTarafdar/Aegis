@@ -1,9 +1,14 @@
 import google.generativeai as genai
 from PIL import Image
 import io
+import os
+from dotenv import load_dotenv
 
-# Set your API Key here
-genai.configure(api_key="AIzaSyBitJDUavzpUTcmGP8TzloHHoE_6cqsoVw")
+load_dotenv()
+
+# Get the key from environment variables
+api_key = os.getenv("GOOGLE_API_KEY")
+genai.configure(api_key=api_key)
 
 def verify_liveness(image_bytes, required_object):
     """
