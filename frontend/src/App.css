@@ -1,38 +1,46 @@
-.App {
-  text-align: center;
+:root {
+  --bank-gold: #d4af37;
+  --bank-black: #0a0a0a;
+  --bank-dark-grey: #1a1a1a;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+body {
+  background-color: var(--bank-black);
+  color: #fff;
+  font-family: "Inter", sans-serif;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+.swiss-card {
+  background: var(--bank-dark-grey);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 0px; /* Sharp Swiss edges */
+  padding: 2rem;
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+.gold-btn {
+  background: var(--bank-gold);
+  color: #000;
+  font-weight: bold;
+  border-radius: 0;
+  border: none;
+  padding: 10px 25px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
-.App-link {
-  color: #61dafb;
+.gold-btn:hover {
+  background: #f1c40f;
+  box-shadow: 0 0 15px rgba(212, 175, 55, 0.5);
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.vault-input {
+  background: #000 !important;
+  color: var(--bank-gold) !important;
+  border: 1px solid #333 !important;
+  border-radius: 0;
+}
+
+.vault-input:focus {
+  border-color: var(--bank-gold) !important;
+  box-shadow: none;
 }
