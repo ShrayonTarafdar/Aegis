@@ -13,7 +13,8 @@ app = FastAPI()
 # Enable CORS for React
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # For production, replace with your actual Frontend Render URL
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
