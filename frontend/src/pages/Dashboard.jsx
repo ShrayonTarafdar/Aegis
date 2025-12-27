@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CreditCard, ShieldCheck, History, User } from "lucide-react";
+import { CreditCard, ShieldCheck, History } from "lucide-react";
 
 const Dashboard = () => {
   const [user, setUser] = useState(null);
@@ -19,10 +19,11 @@ const Dashboard = () => {
     }
     setUser(session);
 
-    // Fetch Balances from Bank
-    fetch(`http://localhost:8000/balance/${session.fake_upi}`)
+    // Changed: Using relative path for unified deployment
+    fetch(`/balance/${session.fake_upi}`)
       .then((res) => res.json())
-      .then((data) => setBalances(data));
+      .then((data) => setBalances(data))
+      .catch((err) => console.error("Balance fetch error:", err));
 
     // Load local history
     const localHistory = JSON.parse(

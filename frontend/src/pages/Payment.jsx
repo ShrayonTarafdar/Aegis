@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import Webcam from "react-webcam";
 import { useNavigate } from "react-router-dom";
 
@@ -39,7 +39,8 @@ const Payment = () => {
     formData.append("required_object", targetObject);
 
     try {
-      const res = await fetch("http://localhost:8000/transaction", {
+      // Changed: Removed localhost URL for production deployment
+      const res = await fetch("/transaction", {
         method: "POST",
         body: formData,
       });
@@ -64,7 +65,7 @@ const Payment = () => {
         alert("Security Error: " + data.detail);
       }
     } catch (err) {
-      alert("Connection Failed");
+      alert("Connection Failed: Check if server is awake.");
     } finally {
       setLoading(false);
     }
@@ -124,13 +125,13 @@ const Payment = () => {
                 onClick={handlePayment}
                 disabled={loading}
               >
-                {loading ? "AI is Verifying..." : "Confirm & Encrypt"}
+                {loading ? "Gemini is Verifying..." : "Confirm & Encrypt"}
               </button>
               <button
-                className="btn btn-link btn-sm mt-2"
+                className="btn btn-link btn-sm mt-2 text-decoration-none"
                 onClick={() => setStep(1)}
               >
-                Cancel
+                Go Back
               </button>
             </div>
           )}
