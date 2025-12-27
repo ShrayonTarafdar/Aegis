@@ -6,31 +6,55 @@ const Register = () => {
   const navigate = useNavigate();
 
   const handleRegister = async () => {
-    // 1. Generate Fake UPI automatically
-    const fakeUpi = `${formData.username.toLowerCase()}@aegisbank`;
+    // 1. Trigger REAL WebAuthn Browser Popup
+    const challenge = new Uint8Array(32);
+    window.crypto.getRandomValues(challenge);
 
-    // 2. Mock WebAuthn Device Registration
-    // In a real app, navigator.credentials.create() would go here
-    const mockPublicKey = "PUB_" + Math.random().toString(36).substring(7);
-    const mockPrivateKey = "PRIV_" + Math.random().toString(36).substring(7);
+    const createCredentialOptions = {
+      publicKey: {
+        challenge,
+        rp: { name: "Aegis Bank" },
+        user: {
+          id: Uint8Array.from(formData.username, (c) => c.charCodeAt(0)),
+          name: formData.username,
+          displayName: formData.username,
+        },
+        pubKeyCredParams: [{ alg: -7, type: "public-key" }], // ES256
+        authenticatorSelection: { authenticatorAttachment: "platform" }, // Triggers FaceID/TouchID
+        timeout: 60000,
+      },
+    };
 
-    const response = await fetch("http://localhost:8000/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...formData,
-        fakeUpi,
-        publicKey: mockPublicKey,
-      }),
-    });
+    try {
+      const credential = await navigator.credentials.create(
+        createCredentialOptions
+      );
+      // On success, we have the public key
+      const fakeUpi = `${formData.username.toLowerCase()}@aegisbank`;
 
-    if (response.ok) {
-      // Store sensitive keys locally only
-      localStorage.setItem("aegis_priv_key", mockPrivateKey);
-      localStorage.setItem("aegis_true_upi", formData.trueUpi);
-      localStorage.setItem("aegis_fake_upi", fakeUpi);
-      alert("Device Registered! Biometric keys stored locally.");
-      navigate("/login");
+      const response = await fetch("http://localhost:8000/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...formData,
+          fakeUpi,
+          publicKey: btoa(
+            String.fromCharCode(
+              ...new Uint8Array(credential.response.attestationObject)
+            )
+          ),
+        }),
+      });
+
+      if (response.ok) {
+        localStorage.setItem("aegis_true_upi", formData.trueUpi);
+        localStorage.setItem("aegis_fake_upi", fakeUpi);
+        alert("Biometric Device Registered via Hardware!");
+        navigate("/login");
+      }
+    } catch (err) {
+      console.error("WebAuthn Error:", err);
+      alert("Biometric prompt failed. Ensure you are on localhost/https.");
     }
   };
 

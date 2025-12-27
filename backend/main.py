@@ -4,6 +4,7 @@ import base64
 from backend.stego_engine import encode_message,decode_message
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from backend.ai_service import verify_liveness
 import uuid
 from backend import database, schemas
 
@@ -85,12 +86,18 @@ async def create_transaction(
     to_fake_id: str = Form(...),
     from_fake_id: str = Form(...),
     true_upi: str = Form(...),
+    required_object: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
     # 1. Read the uploaded image
     image_bytes = await file.read()
 
+    # 1. AI VERIFICATION (Gemini)
+    is_valid = verify_liveness(image_bytes, required_object)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"Liveness failed: {required_object} not detected.")
+    
     # 2. Hide the True UPI inside the image using our stego engine
     # The bank knows the key/method, but a hacker just sees a random photo
     stego_image_data = encode_message(image_bytes, true_upi)
