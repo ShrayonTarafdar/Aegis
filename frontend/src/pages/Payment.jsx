@@ -26,7 +26,7 @@ const Payment = () => {
     formData.append("true_upi", trueUpi);
 
     try {
-        const res = await fetch("http://localhost:8000/transaction", {
+        const res = await fetch("/transaction", {
             method: "POST",
             body: formData,
         });
