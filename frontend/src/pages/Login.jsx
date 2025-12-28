@@ -75,9 +75,9 @@ const Login = () => {
           onClick={handleLogin}
           disabled={loading}
         >
-          {/* {loading ? "Waiting for Sensor..." : "Login with FaceID / TouchID"} */}
-          <i className="bi bi-person-bounding-box me-2"></i>
-  {loading ? "Verifying..." : "Login with Biometrics (Face / Fingerprint)"}
+          {loading ? "Waiting for Sensor..." : "Login with FaceID / TouchID"}
+          {/* <i className="bi bi-person-bounding-box me-2"></i>
+  {loading ? "Verifying..." : "Login with Biometrics (Face / Fingerprint)"} */}
         </button>
       </div>
     </div>

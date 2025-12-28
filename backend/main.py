@@ -11,8 +11,15 @@ import os
 import io
 import json
 import random
+import os # Ensure os is imported at the top
+
 # Your custom modules
 import database, schemas
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+# ... your API routes ...
+
 
 # WebAuthn Imports
 from webauthn import (
@@ -30,7 +37,11 @@ from webauthn.helpers.structs import (
 )
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="build/static"), name="static")
 
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    return FileResponse("build/index.html")
 # --- CONFIGURATION ---
 RP_ID = "localhost" 
 RP_NAME = "Aegis Secure Bank"
@@ -145,10 +156,12 @@ def get_reg_options(user_data: schemas.UserCreate, db: Session = Depends(get_db)
     
     # Use Response to return the raw JSON string from webauthn library correctly
     return Response(content=options_to_json(options), media_type="application/json")
+import uuid # Ensure this is imported at the top
 
 @app.post("/webauthn/register/verify")
 async def verify_reg(username: str, credential: dict, db: Session = Depends(get_db)):
     stored = CHALLENGE_STORAGE.pop(username, None)
+    
     if not stored:
         raise HTTPException(status_code=400, detail="Registration session expired. Try again.")
     
@@ -161,19 +174,24 @@ async def verify_reg(username: str, credential: dict, db: Session = Depends(get_
         )
         
         reg_info = stored["user_data"] 
-        # Biometric verified! Now create the User and Bank Account
+
+        # --- NEW LOGIC: Generate a randomized, blinded Fake UPI ---
+        # This makes the public ID look like: AEGIS-7A2B-91C4
+        randomized_node_id = f"AEGIS-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}"
+
+        # Create the User with the NEW randomized ID
         new_user = database.User(
             username=reg_info.username,
-            true_upi=reg_info.trueUpi,
-            fake_upi=reg_info.fakeUpi,
-    # Use the full names from the v2.x library:
+            true_upi=reg_info.trueUpi,     # Hidden: niyati@realbank
+            fake_upi=randomized_node_id,  # Public: AEGIS-7A2B-91C4
             credential_id=verification.credential_id,
-            public_key=verification.credential_public_key, # Changed here
+            public_key=verification.credential_public_key,
             sign_count=verification.sign_count
         )
         
+        # Create the Bank Account using the SAME randomized ID
         new_account = database.Account(
-            fake_upi=reg_info.fakeUpi,
+            fake_upi=randomized_node_id,
             honeypot_balance=100.0,
             true_balance=5000.0
         )
@@ -181,17 +199,63 @@ async def verify_reg(username: str, credential: dict, db: Session = Depends(get_
         db.add(new_user)
         db.add(new_account)
         db.commit()
-        return {"status": "success", "message": "Biometric registration complete"}
+        
+        return {
+            "status": "success", 
+            "message": "Biometric registration complete",
+            "blinded_id": randomized_node_id # Optional: return to frontend
+        }
         
     except Exception as e:
         print(f"DEBUG - WebAuthn Error: {e}") 
         raise HTTPException(status_code=400, detail=str(e))
-        # raise HTTPException(status_code=400, detail=f"Biometric failed: {str(e)}")
+# @app.post("/webauthn/register/verify")
+# async def verify_reg(username: str, credential: dict, db: Session = Depends(get_db)):
+#     stored = CHALLENGE_STORAGE.pop(username, None)
+
+#     if not stored:
+#         raise HTTPException(status_code=400, detail="Registration session expired. Try again.")
+    
+#     try:
+#         verification = verify_registration_response(
+#             credential=credential,
+#             expected_challenge=stored["challenge"],
+#             expected_origin=ORIGIN,
+#             expected_rp_id=RP_ID,
+#         )
+        
+#         reg_info = stored["user_data"] 
+#         # Biometric verified! Now create the User and Bank Account
+#         new_user = database.User(
+#             username=reg_info.username,
+#             true_upi=reg_info.trueUpi,
+#             fake_upi=reg_info.fakeUpi,
+#     # Use the full names from the v2.x library:
+#             credential_id=verification.credential_id,
+#             public_key=verification.credential_public_key, # Changed here
+#             sign_count=verification.sign_count
+#         )
+        
+#         new_account = database.Account(
+#             fake_upi=reg_info.fakeUpi,
+#             honeypot_balance=100.0,
+#             true_balance=5000.0
+#         )
+        
+#         db.add(new_user)
+#         db.add(new_account)
+#         db.commit()
+#         return {"status": "success", "message": "Biometric registration complete"}
+        
+#     except Exception as e:
+#         print(f"DEBUG - WebAuthn Error: {e}") 
+#         raise HTTPException(status_code=400, detail=str(e))
+#         # raise HTTPException(status_code=400, detail=f"Biometric failed: {str(e)}")
 
 # --- 3. BIOMETRIC LOGIN ---
 @app.get("/webauthn/login/options")
 def get_log_options(username: str, db: Session = Depends(get_db)):
-    username = username.lower() # Normalize to lowercase
+    username = username.lower().strip() # Normalize to lowercase
     user = db.query(database.User).filter(database.User.username == username).first()
     
     if not user:
@@ -299,6 +363,113 @@ async def create_transaction(
     db.commit()
     return {"status": "Payment Blinded Successfully", "tx_id": new_tx.id}
 
+@app.get("/hacker/accounts")
+def get_hacker_accounts(db: Session = Depends(get_db)):
+    # This returns the Account objects which only contain 
+    # fake_upi and honeypot_balance (Hacker View)
+    accounts = db.query(database.Account).all()
+    return accounts
+# @app.get("/hacker/transactions")
+# def get_hacker_transactions(db: Session = Depends(get_db)):
+#     txs = db.query(database.Transaction).all()
+#     # We return keys that look like a leaked bank database
+#     return [
+#         {
+#             "tx_id": f"TXN-{tx.id:04d}",
+#             "sender_account": tx.from_fake_id, # AEGIS-XXXX-XXXX
+#             "receiver_account": tx.to_fake_id, # AEGIS-XXXX-XXXX
+#             "amount": round(tx.amount * 0.1, 2), # Deceptive Honeypot Amount
+#             "timestamp": tx.timestamp,
+#             "receipt_payload": base64.b64encode(tx.stego_image).decode('utf-8')
+#         } for tx in txs
+#     ]
+from fastapi import UploadFile, File, Form, Depends, HTTPException
+import database # your database file
+
+@app.post("/hacker/transaction")
+async def create_hacker_transaction(
+    amount: float = Form(...),
+    to_id: str = Form(...),
+    from_id: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    # 1. Read the image bytes
+    image_bytes = await file.read()
+
+    # 2. Check if sender exists
+    sender = db.query(database.Account).filter(database.Account.fake_upi == from_id).first()
+    if not sender:
+        raise HTTPException(status_code=404, detail="Sender account not found")
+
+    # 3. Create the transaction record 
+    # (Matching the keys found in your GET request snippet)
+    new_tx = database.Transaction(
+        from_fake_id=from_id,
+        to_fake_id=to_id,
+        amount=amount * 10, # If your GET returns amount * 0.1, we store it x10 here
+        stego_image=image_bytes,
+        timestamp="2023-10-27 10:00:00" # Or use datetime.now()
+    )
+
+    # 4. Update balance
+    sender.honeypot_balance -= amount
+
+    db.add(new_tx)
+    db.commit()
+    return {"status": "success"}
+# @app.get("/hacker/transactions")
+# def get_hacker_transactions(db: Session = Depends(get_db)):
+#     txs = db.query(database.Transaction).all()
+#     # We return keys like 'amount' and 'receiver' so it looks like a real ledger
+#     return [
+#         {
+#             "id": tx.id,
+#             "sender": tx.from_fake_id,
+#             "receiver": tx.to_fake_id,
+#             "amount": tx.amount, # Deceptive 10% value
+#             "date": tx.timestamp,
+#             "receipt_image": base64.b64encode(tx.stego_image).decode('utf-8')
+#         } for tx in txs
+#     ]
+
+# @app.post("/hacker/transaction")
+# async def create_hacker_transaction(
+#     amount: float = Form(...),
+#     to_id: str = Form(...),
+#     from_id: str = Form(...),
+#     file: UploadFile = File(...),
+#     db: Session = Depends(get_db)
+# ):
+#     # 1. Illusion: Perform steganography even on the hacker's fake payment
+#     image_bytes = await file.read()
+#     stego_data = encode_message(image_bytes, f"DECEPTIVE_TX_{uuid.uuid4().hex[:6]}")
+
+#     # 2. Update ONLY the Honeypot Balance
+#     sender_acc = db.query(database.Account).filter(database.Account.fake_upi == from_id).first()
+    
+#     if not sender_acc:
+#         raise HTTPException(status_code=404, detail="Account route not found")
+    
+#     if sender_acc.honeypot_balance < amount:
+#         raise HTTPException(status_code=400, detail="Transaction limit exceeded for this node")
+
+#     # Deduct from the fake balance
+#     sender_acc.honeypot_balance -= amount
+
+#     # 3. Log it in the ledger so it appears in the deceptive history
+#     new_tx = database.Transaction(
+#         from_fake_id=from_id,
+#         to_fake_id=to_id,
+#         amount=amount, # In the hacker's world, they see the full amount
+#         timestamp=time.ctime(),
+#         stego_image=stego_data
+#     )
+    
+#     db.add(new_tx)
+#     db.commit()
+    
+#     return {"status": "Success", "message": "Funds transferred to remote node"}
 # --- 5. ADMIN & UI UTILITIES ---
 
 @app.get("/balance/{fake_upi}")
