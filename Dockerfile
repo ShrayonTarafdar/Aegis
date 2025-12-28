@@ -10,31 +10,29 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 
-# Install system dependencies required for Pillow and py-webauthn (cryptography)
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libjpeg-dev \
     zlib1g-dev \
     libffi-dev \
     libssl-dev \
-    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements FIRST (optimizes Docker caching)
+# Copy requirements
 COPY backend/requirements.txt .
 
-# Upgrade pip and install Python packages
-RUN pip install --upgrade pip && \
+# Install Python packages
+RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy Backend code
 COPY backend/ .
 
-# Copy built Frontend assets from Stage 1
+# Copy built Frontend assets
 COPY --from=frontend-builder /app/frontend/build ./build
 
 # Render uses port 10000
 EXPOSE 10000
 
-# Start FastAPI
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
