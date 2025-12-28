@@ -5,7 +5,7 @@ const Bank = () => {
   const [decodedIds, setDecodedIds] = useState({});
 
   const fetchTxs = () => {
-    fetch("http://localhost:8000/admin/transactions")
+    fetch("/admin/transactions")
       .then((res) => res.json())
       .then((data) => setTransactions(data));
   };

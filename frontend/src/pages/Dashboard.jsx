@@ -18,7 +18,7 @@ const Dashboard = () => {
     setUser(session);
 
     // Fetch balances
-    fetch(`http://localhost:8000/balance/${session.fake_upi}`)
+    fetch(`/balance/${session.fake_upi}`)
       .then((res) => res.json())
       .then((data) => setBalances(data));
   }, []);

@@ -18,7 +18,7 @@ const Login = () => {
     try {
       // --- STEP 1: Get Login Options from Backend ---
       // This tells the browser which Passkey/Credential ID to look for
-      const optionsResp = await fetch(`http://localhost:8000/webauthn/login/options?username=${username}`);
+      const optionsResp = await fetch(`/webauthn/login/options?username=${username}`);
       
       if (!optionsResp.ok) {
         throw new Error("User not found or biometric device not registered.");
@@ -31,7 +31,7 @@ const Login = () => {
       const assertionResponse = await startAuthentication(options);
 
       // --- STEP 3: Verify the hardware response with the Backend ---
-      const verifyResp = await fetch(`http://localhost:8000/webauthn/login/verify?username=${username}`, {
+      const verifyResp = await fetch(`/webauthn/login/verify?username=${username}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(assertionResponse),

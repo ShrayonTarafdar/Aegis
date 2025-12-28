@@ -20,7 +20,7 @@ const Register = () => {
     try {
       // --- STEP 1: Get Registration Options from Backend ---
       // We send the user info to the backend to get a cryptographic challenge
-      const optionsResponse = await fetch("http://localhost:8000/webauthn/register/options", {
+      const optionsResponse = await fetch("/webauthn/register/options", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -45,7 +45,7 @@ const Register = () => {
       // --- STEP 3: Verify the Biometric Credential with Backend ---
       // This sends the "proof" from the hardware back to the server to save the user
       const verifyResponse = await fetch(
-        `http://localhost:8000/webauthn/register/verify?username=${formData.username}`,
+        `/webauthn/register/verify?username=${formData.username}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
