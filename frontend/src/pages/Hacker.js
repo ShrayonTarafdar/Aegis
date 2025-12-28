@@ -132,11 +132,11 @@ const Hacker = () => {
 
   const fetchData = async () => {
     try {
-      const accRes = await fetch("/hacker/accounts");
+      const accRes = await fetch("http://localhost:8000/hacker/accounts");
       const accData = await accRes.json();
       if (Array.isArray(accData)) setAccounts(accData);
 
-      const txRes = await fetch("/hacker/transactions");
+      const txRes = await fetch("http://localhost:8000/hacker/transactions");
       const txData = await txRes.json();
       if (Array.isArray(txData)) setHistory(txData);
     } catch (err) { console.error("Sync Error:", err); }
@@ -192,7 +192,7 @@ const Hacker = () => {
         formData.append("from_id", accounts[0]?.fake_upi); 
         formData.append("file", file);
 
-        const res = await fetch("/hacker/transaction", { 
+        const res = await fetch("http://localhost:8000/hacker/transaction", { 
             method: "POST", 
             body: formData 
         });

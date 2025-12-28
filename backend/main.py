@@ -500,22 +500,551 @@
 #     async def serve_frontend(rest_of_path: str):
 #         return FileResponse(os.path.join(frontend_static_dir, "index.html"))
 
+
+###------------
+
+# from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Response
+# from fastapi.middleware.cors import CORSMiddleware
+# from fastapi.staticfiles import StaticFiles
+# from fastapi.responses import FileResponse
+# from sqlalchemy.orm import Session
+# from PIL import Image
+# import time
+# import base64
+# import uuid
+# import os
+# import io
+# from pydantic import BaseModel
+# # Your custom modules
+# import database, schemas
+
+# # --- WEBAUTHN IMPORTS (Fixed for py-webauthn v2.0+) ---
+# from webauthn import (
+#     generate_registration_options,
+#     verify_registration_response,
+#     generate_authentication_options,
+#     verify_authentication_response,
+#     options_to_json,
+# )
+# from webauthn.helpers.structs import (
+#     AuthenticatorSelectionCriteria, 
+#     AuthenticatorAttachment, 
+#     UserVerificationRequirement,
+#     PublicKeyCredentialDescriptor 
+# )
+
+# app = FastAPI()
+
+# # --- DYNAMIC CONFIGURATION FOR DEPLOYMENT ---
+# # Render provides the URL in RENDER_EXTERNAL_HOSTNAME (e.g., myapp.onrender.com)
+# RENDER_HOST = os.getenv("RENDER_EXTERNAL_HOSTNAME")
+
+# if RENDER_HOST:
+#     RP_ID = RENDER_HOST
+#     ORIGIN = f"https://{RENDER_HOST}"
+# else:
+#     RP_ID = "localhost"
+#     ORIGIN = "http://localhost:3000"
+
+# RP_NAME = "Aegis Secure Bank"
+
+# # Temporary challenge storage
+# CHALLENGE_STORAGE = {}
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=[ORIGIN, "http://localhost:3000"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# def get_db():
+#     db = database.SessionLocal()
+#     try:
+#         yield db
+#     finally:
+#         db.close()
+
+# # --- 1. STEGANOGRAPHY ENGINE ---
+# def encode_message(image_bytes, message):
+#     img = Image.open(io.BytesIO(image_bytes))
+#     if img.mode != 'RGB':
+#         img = img.convert('RGB')
+#     encoded = img.copy()
+#     width, height = img.size
+#     message += "####" 
+#     binary_msg = ''.join(format(ord(i), '08b') for i in message)
+#     data_index = 0
+#     pixels = encoded.load()
+#     for y in range(height):
+#         for x in range(width):
+#             if data_index < len(binary_msg):
+#                 r, g, b = pixels[x, y]
+#                 r = (r & ~1) | int(binary_msg[data_index])
+#                 data_index += 1
+#                 pixels[x, y] = (r, g, b)
+#             else: break
+#     img_byte_arr = io.BytesIO()
+#     encoded.save(img_byte_arr, format='PNG')
+#     return img_byte_arr.getvalue()
+
+# def decode_message(image_bytes):
+#     img = Image.open(io.BytesIO(image_bytes))
+#     pixels = img.load()
+#     binary_msg = ""
+#     for y in range(img.height):
+#         for x in range(img.width):
+#             r, g, b = pixels[x, y]
+#             binary_msg += str(r & 1)
+#     chars = [binary_msg[i:i+8] for i in range(0, len(binary_msg), 8)]
+#     message = ""
+#     for char in chars:
+#         try:
+#             val = chr(int(char, 2))
+#             message += val
+#             if "####" in message: return message.replace("####", "")
+#         except: break
+#     return message
+
+# # --- 2. BIOMETRIC ROUTES ---
+
+# @app.post("/webauthn/register/options")
+# def get_reg_options(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
+#     username = user_data.username.lower()
+#     existing = db.query(database.User).filter(database.User.username == username).first()
+#     if existing:
+#         raise HTTPException(status_code=400, detail="Username already exists")
+
+#     options = generate_registration_options(
+#         rp_id=RP_ID,
+#         rp_name=RP_NAME,
+#         user_id=uuid.uuid4().bytes,
+#         user_name=username,
+#         authenticator_selection=AuthenticatorSelectionCriteria(
+#             authenticator_attachment=AuthenticatorAttachment.PLATFORM, 
+#             user_verification=UserVerificationRequirement.REQUIRED
+#         ),
+#     )
+#     CHALLENGE_STORAGE[username] = {
+#         "challenge": options.challenge,
+#         "user_data": user_data 
+#     }
+#     return Response(content=options_to_json(options), media_type="application/json")
+
+# # @app.post("/webauthn/register/verify")
+# # async def verify_reg(username: str, credential: dict, db: Session = Depends(get_db)):
+# #     username = username.lower()
+# #     stored = CHALLENGE_STORAGE.pop(username, None)
+# #     if not stored:
+# #         raise HTTPException(status_code=400, detail="Registration session expired.")
+    
+# #     try:
+# #         verification = verify_registration_response(
+# #             credential=credential,
+# #             expected_challenge=stored["challenge"],
+# #             expected_origin=ORIGIN,
+# #             expected_rp_id=RP_ID,
+# #         )
+        
+# #         randomized_node_id = f"AEGIS-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}"
+# #         new_user = database.User(
+# #             username=username,
+# #             true_upi=stored["user_data"].trueUpi,
+# #             fake_upi=randomized_node_id,
+# #             credential_id=verification.credential_id,
+# #             public_key=verification.credential_public_key,
+# #             sign_count=verification.sign_count
+# #         )
+# #         new_account = database.Account(fake_upi=randomized_node_id, honeypot_balance=100.0, true_balance=5000.0)
+# #         db.add(new_user)
+# #         db.add(new_account)
+# #         db.commit()
+# #         return {"status": "success", "blinded_id": randomized_node_id}
+# #     except Exception as e:
+# #         raise HTTPException(status_code=400, detail=str(e))
+# # --- SYNCED BALANCE ENDPOINT ---
+# @app.get("/balance/{fake_upi}")
+# def get_balance(fake_upi: str, db: Session = Depends(get_db)):
+#     account = db.query(database.Account).filter(database.Account.fake_upi == fake_upi).first()
+#     if not account: 
+#         raise HTTPException(status_code=404, detail="Account not found")
+    
+#     # IMPORTANT: Keys must match Dashboard.js (fake_balance, true_balance)
+#     return {
+#         "fake_balance": account.honeypot_balance, 
+#         "true_balance": account.true_balance
+#     }
+
+# # --- SECURE USER TRANSACTION ---
+# @app.post("/transaction")
+# async def create_transaction(
+#     amount: float = Form(...),
+#     to_fake_id: str = Form(...),
+#     from_fake_id: str = Form(...),
+#     true_upi: str = Form(...),
+#     file: UploadFile = File(...),
+#     db: Session = Depends(get_db)
+# ):
+#     image_bytes = await file.read()
+#     stego_image_data = encode_message(image_bytes, true_upi)
+
+#     sender_acc = db.query(database.Account).filter(database.Account.fake_upi == from_fake_id).first()
+#     if not sender_acc or sender_acc.true_balance < amount:
+#         raise HTTPException(status_code=400, detail="Insufficient true balance")
+
+#     # Update both levels of balance
+#     sender_acc.true_balance -= amount
+#     sender_acc.honeypot_balance -= amount 
+
+#     new_tx = database.Transaction(
+#         from_fake_id=from_fake_id,
+#         to_fake_id=to_fake_id,
+#         amount=amount,
+#         timestamp=time.ctime(),
+#         stego_image=stego_image_data
+#     )
+    
+#     db.add(new_tx)
+#     db.commit()
+#     return {"status": "success", "new_balance": sender_acc.true_balance}
+
+# # --- DECEPTIVE HACKER TRANSACTION ---
+# @app.post("/hacker/transaction")
+# async def create_hacker_transaction(
+#     amount: float = Form(...), 
+#     to_id: str = Form(...), 
+#     from_id: str = Form(...),
+#     file: UploadFile = File(...), 
+#     db: Session = Depends(get_db)
+# ):
+#     image_bytes = await file.read()
+#     sender = db.query(database.Account).filter(database.Account.fake_upi == from_id).first()
+    
+#     if not sender: 
+#         raise HTTPException(status_code=404, detail="Node not found")
+
+#     # The Deception: Hacker only affects the "honeypot_balance"
+#     # We record 10x the amount in the "fake" ledger to make it look like a big heist
+#     sender.honeypot_balance -= amount
+
+#     new_tx = database.Transaction(
+#         from_fake_id=from_id, 
+#         to_fake_id=to_id, 
+#         amount=amount * 10, # Deceptive inflation
+#         stego_image=image_bytes, 
+#         timestamp=time.ctime()
+#     )
+#     db.add(new_tx)
+#     db.commit()
+#     return {"status": "success"}
+# # @app.get("/webauthn/login/options")
+# # def get_log_options(username: str, db: Session = Depends(get_db)):
+# #     username = username.lower()
+# #     user = db.query(database.User).filter(database.User.username == username).first()
+# #     if not user: 
+# #         raise HTTPException(status_code=404, detail="User not found")
+
+# #     options = generate_authentication_options(
+# #         rp_id=RP_ID,
+# #         allow_credentials=[PublicKeyCredentialDescriptor(id=user.credential_id)],
+# #         user_verification=UserVerificationRequirement.REQUIRED, 
+# #     )
+# #     CHALLENGE_STORAGE[username] = options.challenge
+# #     return Response(content=options_to_json(options), media_type="application/json")
+
+# # @app.post("/webauthn/login/verify")
+# # async def verify_log(username: str, credential: dict, db: Session = Depends(get_db)):
+# #     username = username.lower()
+# #     user = db.query(database.User).filter(database.User.username == username).first()
+# #     challenge = CHALLENGE_STORAGE.pop(username, None)
+    
+# #     if not challenge or not user: 
+# #         raise HTTPException(status_code=400, detail="Invalid session or user")
+
+# #     try:
+# #         verification = verify_authentication_response(
+# #             credential=credential,
+# #             expected_challenge=challenge,
+# #             expected_origin=ORIGIN,
+# #             expected_rp_id=RP_ID,
+# #             credential_public_key=user.public_key,
+# #             credential_current_sign_count=user.sign_count,
+# #         )
+# #         user.sign_count = verification.new_sign_count
+# #         db.commit()
+# #         return {"status": "success", "username": user.username, "fake_upi": user.fake_upi}
+# #     except Exception as e:
+# #         raise HTTPException(status_code=401, detail=str(e))
+
+# # --- REQUEST MODELS ---
+# class RegistrationVerifyBody(BaseModel):
+#     username: str
+#     credential: dict
+
+# class LoginVerifyBody(BaseModel):
+#     username: str
+#     credential: dict
+
+# # --- 1. REGISTRATION OPTIONS (Updated) ---
+# @app.post("/webauthn/register/options")
+# def get_reg_options(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
+#     username = user_data.username.lower().strip()
+#     existing = db.query(database.User).filter(database.User.username == username).first()
+#     if existing:
+#         raise HTTPException(status_code=400, detail="Username already exists")
+
+#     options = webauthn.generate_registration_options(
+#         rp_id=RP_ID,
+#         rp_name=RP_NAME,
+#         user_id=uuid.uuid4().bytes,
+#         user_name=username,
+#         authenticator_selection=AuthenticatorSelectionCriteria(
+#             authenticator_attachment=AuthenticatorAttachment.PLATFORM, 
+#             user_verification=UserVerificationRequirement.REQUIRED
+#         ),
+#     )
+#     # Store both the challenge and the user metadata
+#     CHALLENGE_STORAGE[username] = {
+#         "challenge": options.challenge,
+#         "user_data": user_data 
+#     }
+#     return Response(content=options_to_json(options), media_type="application/json")
+
+# # --- 2. REGISTRATION VERIFY (New Fixed Logic) ---
+# @app.post("/webauthn/register/verify")
+# async def verify_reg(body: RegistrationVerifyBody, db: Session = Depends(get_db)):
+#     username = body.username.lower().strip()
+#     stored = CHALLENGE_STORAGE.pop(username, None)
+    
+#     if not stored:
+#         raise HTTPException(status_code=400, detail="Registration session expired.")
+    
+#     try:
+#         verification = webauthn.verify_registration_response(
+#             credential=body.credential,
+#             expected_challenge=stored["challenge"],
+#             expected_origin=ORIGIN,
+#             expected_rp_id=RP_ID,
+#         )
+        
+#         # Generate the Randomized Aegis ID
+#         randomized_id = f"AEGIS-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}"
+
+#         new_user = database.User(
+#             username=username,
+#             true_upi=stored["user_data"].trueUpi,
+#             fake_upi=randomized_id,
+#             credential_id=verification.credential_id,
+#             public_key=verification.credential_public_key,
+#             sign_count=verification.sign_count
+#         )
+        
+#         new_account = database.Account(
+#             fake_upi=randomized_id, 
+#             honeypot_balance=100.0, 
+#             true_balance=5000.0
+#         )
+        
+#         db.add(new_user)
+#         db.add(new_account)
+#         db.commit()
+#         return {"status": "success", "blinded_id": randomized_id}
+#     except Exception as e:
+#         raise HTTPException(status_code=400, detail=str(e))
+
+# # --- 3. LOGIN OPTIONS ---
+# @app.get("/webauthn/login/options")
+# def get_log_options(username: str, db: Session = Depends(get_db)):
+#     username = username.lower().strip()
+#     user = db.query(database.User).filter(database.User.username == username).first()
+#     if not user: 
+#         raise HTTPException(status_code=404, detail="User not found")
+
+#     options = webauthn.generate_authentication_options(
+#         rp_id=RP_ID,
+#         allow_credentials=[PublicKeyCredentialDescriptor(id=user.credential_id)],
+#         user_verification=UserVerificationRequirement.REQUIRED, 
+#     )
+#     CHALLENGE_STORAGE[username] = options.challenge
+#     return Response(content=options_to_json(options), media_type="application/json")
+
+# # --- 4. LOGIN VERIFY ---
+# @app.post("/webauthn/login/verify")
+# async def verify_log(body: LoginVerifyBody, db: Session = Depends(get_db)):
+#     username = body.username.lower().strip()
+#     user = db.query(database.User).filter(database.User.username == username).first()
+#     challenge = CHALLENGE_STORAGE.pop(username, None)
+    
+#     if not challenge or not user: 
+#         raise HTTPException(status_code=400, detail="Invalid session or user")
+
+#     try:
+#         verification = webauthn.verify_authentication_response(
+#             credential=body.credential,
+#             expected_challenge=challenge,
+#             expected_origin=ORIGIN,
+#             expected_rp_id=RP_ID,
+#             credential_public_key=user.public_key,
+#             credential_current_sign_count=user.sign_count,
+#         )
+#         user.sign_count = verification.new_sign_count
+#         db.commit()
+        
+#         # Save session data for Dashboard
+#         return {
+#             "status": "success", 
+#             "username": user.username, 
+#             "fake_upi": user.fake_upi,
+#             "true_upi": user.true_upi
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=401, detail=str(e))
+# # --- 3. TRANSACTION ROUTES ---
+
+# @app.post("/hacker/transaction")
+# async def create_hacker_transaction(
+#     amount: float = Form(...), to_id: str = Form(...), from_id: str = Form(...),
+#     file: UploadFile = File(...), db: Session = Depends(get_db)
+# ):
+#     image_bytes = await file.read()
+#     sender = db.query(database.Account).filter(database.Account.fake_upi == from_id).first()
+#     if not sender: 
+#         raise HTTPException(status_code=404, detail="Account not found")
+
+#     new_tx = database.Transaction(
+#         from_fake_id=from_id, 
+#         to_fake_id=to_id, 
+#         amount=amount * 10,
+#         stego_image=image_bytes, 
+#         timestamp=time.ctime()
+#     )
+#     sender.honeypot_balance -= amount
+#     db.add(new_tx)
+#     db.commit()
+#     return {"status": "success"}
+# # @app.post("/transaction")
+# # async def create_transaction(
+# #     amount: float = Form(...),
+# #     to_fake_id: str = Form(...),
+# #     from_fake_id: str = Form(...),
+# #     true_upi: str = Form(...),
+# #     file: UploadFile = File(...),
+# #     db: Session = Depends(get_db)
+# # ):
+# #     image_bytes = await file.read()
+    
+# #     # Hide the True UPI inside the photo bytes
+# #     stego_image_data = encode_message(image_bytes, true_upi)
+
+# #     new_tx = database.Transaction(
+# #         from_fake_id=from_fake_id,
+# #         to_fake_id=to_fake_id,
+# #         amount=amount,
+# #         timestamp=time.ctime(),
+# #         stego_image=stego_image_data
+# #     )
+    
+# #     sender_acc = db.query(database.Account).filter(database.Account.fake_upi == from_fake_id).first()
+# #     if sender_acc:
+# #         sender_acc.true_balance -= amount
+# #         sender_acc.honeypot_balance -= amount # Confusion factor
+    
+# #     db.add(new_tx)
+# #     db.commit()
+# #     return {"status": "Payment Blinded Successfully", "tx_id": new_tx.id}
+# @app.get("/balance/{fake_upi}")
+# def get_balance(fake_upi: str, db: Session = Depends(get_db)):
+#     account = db.query(database.Account).filter(database.Account.fake_upi == fake_upi).first()
+#     if not account: 
+#         raise HTTPException(status_code=404, detail="Account not found")
+    
+#     # IMPORTANT: Keys must match Dashboard.js (fake_balance, true_balance)
+#     return {
+#         "fake_balance": account.honeypot_balance, 
+#         "true_balance": account.true_balance
+#     }
+
+# # --- SECURE USER TRANSACTION ---
+# @app.post("/transaction")
+# async def create_transaction(
+#     amount: float = Form(...),
+#     to_fake_id: str = Form(...),
+#     from_fake_id: str = Form(...),
+#     true_upi: str = Form(...),
+#     file: UploadFile = File(...),
+#     db: Session = Depends(get_db)
+# ):
+#     image_bytes = await file.read()
+#     stego_image_data = encode_message(image_bytes, true_upi)
+
+#     sender_acc = db.query(database.Account).filter(database.Account.fake_upi == from_fake_id).first()
+#     if not sender_acc or sender_acc.true_balance < amount:
+#         raise HTTPException(status_code=400, detail="Insufficient true balance")
+
+#     # Update both levels of balance
+#     sender_acc.true_balance -= amount
+#     sender_acc.honeypot_balance -= amount 
+
+#     new_tx = database.Transaction(
+#         from_fake_id=from_fake_id,
+#         to_fake_id=to_fake_id,
+#         amount=amount,
+#         timestamp=time.ctime(),
+#         stego_image=stego_image_data
+#     )
+    
+#     db.add(new_tx)
+#     db.commit()
+#     return {"status": "success", "new_balance": sender_acc.true_balance}
+
+# @app.get("/hacker/accounts")
+# def get_hacker_accounts(db: Session = Depends(get_db)):
+#     return db.query(database.Account).all()
+
+# @app.get("/hacker/transactions")
+# def get_hacker_transactions(db: Session = Depends(get_db)):
+#     txs = db.query(database.Transaction).all()
+#     return [
+#         {
+#             "id": tx.id,
+#             "receiver_account": tx.to_fake_id,
+#             "amount": tx.amount,
+#             "timestamp": tx.timestamp,
+#             "receipt_payload": base64.b64encode(tx.stego_image).decode('utf-8')
+#         } for tx in txs
+#     ]
+
+# # --- 4. FRONTEND SERVING (Must be at the end) ---
+
+# # Check if build folder exists (Common in Docker combined builds)
+# if os.path.exists("build"):
+#     app.mount("/static", StaticFiles(directory="build/static"), name="static")
+    
+#     @app.get("/{rest_of_path:path}")
+#     async def serve_frontend(rest_of_path: str):
+#         # Allow access to FastAPI documentation
+#         if rest_of_path in ["docs", "redoc", "openapi.json"]:
+#             return None 
+#         # Prevent API routes from returning index.html
+#         if rest_of_path.startswith(("webauthn", "hacker", "transaction")):
+#             raise HTTPException(status_code=404)
+#         return FileResponse("build/index.html")
+
+
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from PIL import Image
-import time
-import base64
-import uuid
-import os
-import io
+from pydantic import BaseModel
+import time, base64, uuid, os, io, webauthn
 
 # Your custom modules
 import database, schemas
 
-# --- WEBAUTHN IMPORTS (Fixed for py-webauthn v2.0+) ---
+# --- WEBAUTHN HELPERS ---
 from webauthn import (
     generate_registration_options,
     verify_registration_response,
@@ -530,22 +1059,18 @@ from webauthn.helpers.structs import (
     PublicKeyCredentialDescriptor 
 )
 
+class LoginVerifyBody(BaseModel):
+    username: str
+    credential: dict
 app = FastAPI()
 
-# --- DYNAMIC CONFIGURATION FOR DEPLOYMENT ---
-# Render provides the URL in RENDER_EXTERNAL_HOSTNAME (e.g., myapp.onrender.com)
+# --- CONFIGURATION ---
 RENDER_HOST = os.getenv("RENDER_EXTERNAL_HOSTNAME")
-
-if RENDER_HOST:
-    RP_ID = RENDER_HOST
-    ORIGIN = f"https://{RENDER_HOST}"
-else:
-    RP_ID = "localhost"
-    ORIGIN = "http://localhost:3000"
-
+RP_ID = RENDER_HOST if RENDER_HOST else "localhost"
+# Biometrics REQUIRE https on production
+ORIGIN = f"https://{RENDER_HOST}" if RENDER_HOST else "http://localhost:3000"
 RP_NAME = "Aegis Secure Bank"
 
-# Temporary challenge storage
 CHALLENGE_STORAGE = {}
 
 app.add_middleware(
@@ -556,6 +1081,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- MODELS FOR VALIDATION (Fixes 422 Error) ---
+class UserRegisterSchema(BaseModel):
+    username: str
+    trueUpi: str  # Matches React state key
+
+class RegistrationVerifyBody(BaseModel):
+    username: str
+    credential: dict
+
+class LoginVerifyBody(BaseModel):
+    username: str
+    credential: dict
+
 def get_db():
     db = database.SessionLocal()
     try:
@@ -565,15 +1103,11 @@ def get_db():
 
 # --- 1. STEGANOGRAPHY ENGINE ---
 def encode_message(image_bytes, message):
-    img = Image.open(io.BytesIO(image_bytes))
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
+    img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
     encoded = img.copy()
     width, height = img.size
-    message += "####" 
-    binary_msg = ''.join(format(ord(i), '08b') for i in message)
-    data_index = 0
-    pixels = encoded.load()
+    binary_msg = ''.join(format(ord(i), '08b') for i in (message + "####"))
+    data_index, pixels = 0, encoded.load()
     for y in range(height):
         for x in range(width):
             if data_index < len(binary_msg):
@@ -585,7 +1119,6 @@ def encode_message(image_bytes, message):
     img_byte_arr = io.BytesIO()
     encoded.save(img_byte_arr, format='PNG')
     return img_byte_arr.getvalue()
-
 def decode_message(image_bytes):
     img = Image.open(io.BytesIO(image_bytes))
     pixels = img.load()
@@ -594,113 +1127,152 @@ def decode_message(image_bytes):
         for x in range(img.width):
             r, g, b = pixels[x, y]
             binary_msg += str(r & 1)
+    
+    # Convert bits to chars
     chars = [binary_msg[i:i+8] for i in range(0, len(binary_msg), 8)]
     message = ""
     for char in chars:
-        try:
-            val = chr(int(char, 2))
-            message += val
-            if "####" in message: return message.replace("####", "")
-        except: break
+        message += chr(int(char, 2))
+        if "####" in message:
+            return message.replace("####", "")
     return message
-
 # --- 2. BIOMETRIC ROUTES ---
 
 @app.post("/webauthn/register/options")
-def get_reg_options(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
-    username = user_data.username.lower()
-    existing = db.query(database.User).filter(database.User.username == username).first()
-    if existing:
+def get_reg_options(user_data: UserRegisterSchema, db: Session = Depends(get_db)):
+    username = user_data.username.lower().strip()
+    if db.query(database.User).filter(database.User.username == username).first():
         raise HTTPException(status_code=400, detail="Username already exists")
 
     options = generate_registration_options(
-        rp_id=RP_ID,
-        rp_name=RP_NAME,
-        user_id=uuid.uuid4().bytes,
-        user_name=username,
+        rp_id=RP_ID, rp_name=RP_NAME,
+        user_id=uuid.uuid4().bytes, user_name=username,
         authenticator_selection=AuthenticatorSelectionCriteria(
             authenticator_attachment=AuthenticatorAttachment.PLATFORM, 
             user_verification=UserVerificationRequirement.REQUIRED
         ),
     )
-    CHALLENGE_STORAGE[username] = {
-        "challenge": options.challenge,
-        "user_data": user_data 
-    }
+    CHALLENGE_STORAGE[username] = {"challenge": options.challenge, "user_data": user_data}
     return Response(content=options_to_json(options), media_type="application/json")
 
 @app.post("/webauthn/register/verify")
-async def verify_reg(username: str, credential: dict, db: Session = Depends(get_db)):
-    username = username.lower()
+async def verify_reg(body: RegistrationVerifyBody, db: Session = Depends(get_db)):
+    username = body.username.lower().strip()
     stored = CHALLENGE_STORAGE.pop(username, None)
-    if not stored:
-        raise HTTPException(status_code=400, detail="Registration session expired.")
+    if not stored: raise HTTPException(status_code=400, detail="Session expired")
     
     try:
         verification = verify_registration_response(
-            credential=credential,
-            expected_challenge=stored["challenge"],
-            expected_origin=ORIGIN,
-            expected_rp_id=RP_ID,
+            credential=body.credential, expected_challenge=stored["challenge"],
+            expected_origin=ORIGIN, expected_rp_id=RP_ID,
         )
         
-        randomized_node_id = f"AEGIS-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}"
+        randomized_id = f"AEGIS-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}"
         new_user = database.User(
-            username=username,
-            true_upi=stored["user_data"].trueUpi,
-            fake_upi=randomized_node_id,
-            credential_id=verification.credential_id,
-            public_key=verification.credential_public_key,
-            sign_count=verification.sign_count
+            username=username, true_upi=stored["user_data"].trueUpi,
+            fake_upi=randomized_id, credential_id=verification.credential_id,
+            public_key=verification.credential_public_key, sign_count=verification.sign_count
         )
-        new_account = database.Account(fake_upi=randomized_node_id, honeypot_balance=100.0, true_balance=5000.0)
-        db.add(new_user)
-        db.add(new_account)
-        db.commit()
-        return {"status": "success", "blinded_id": randomized_node_id}
+        new_account = database.Account(fake_upi=randomized_id, honeypot_balance=100.0, true_balance=5000.0)
+        db.add(new_user); db.add(new_account); db.commit()
+        return {"status": "success", "blinded_id": randomized_id}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/webauthn/login/options")
 def get_log_options(username: str, db: Session = Depends(get_db)):
-    username = username.lower()
-    user = db.query(database.User).filter(database.User.username == username).first()
-    if not user: 
-        raise HTTPException(status_code=404, detail="User not found")
+    user = db.query(database.User).filter(database.User.username == username.lower()).first()
+    if not user: raise HTTPException(status_code=404, detail="User not found")
 
     options = generate_authentication_options(
-        rp_id=RP_ID,
-        allow_credentials=[PublicKeyCredentialDescriptor(id=user.credential_id)],
+        rp_id=RP_ID, allow_credentials=[PublicKeyCredentialDescriptor(id=user.credential_id)],
         user_verification=UserVerificationRequirement.REQUIRED, 
     )
-    CHALLENGE_STORAGE[username] = options.challenge
+    CHALLENGE_STORAGE[username.lower()] = options.challenge
     return Response(content=options_to_json(options), media_type="application/json")
 
+# @app.post("/webauthn/login/verify")
+# async def verify_log(body: LoginVerifyBody, db: Session = Depends(get_db)):
+#     username = body.username.lower().strip()
+#     user = db.query(database.User).filter(database.User.username == username).first()
+#     challenge = CHALLENGE_STORAGE.pop(username, None)
+#     if not challenge or not user: raise HTTPException(status_code=400, detail="Invalid session")
+
+#     try:
+#         verification = verify_authentication_response(
+#             credential=body.credential, expected_challenge=challenge,
+#             expected_origin=ORIGIN, expected_rp_id=RP_ID,
+#             credential_public_key=user.public_key, credential_current_sign_count=user.sign_count,
+#         )
+#         user.sign_count = verification.new_sign_count
+#         db.commit()
+#         return {"status": "success", "username": user.username, "fake_upi": user.fake_upi, "true_upi": user.true_upi}
+#     except Exception as e:
+#         raise HTTPException(status_code=401, detail=str(e))
 @app.post("/webauthn/login/verify")
-async def verify_log(username: str, credential: dict, db: Session = Depends(get_db)):
-    username = username.lower()
+async def verify_log(body: LoginVerifyBody, db: Session = Depends(get_db)):
+    # 1. Normalize input
+    username = body.username.lower().strip()
+    
+    # 2. Get User from DB
     user = db.query(database.User).filter(database.User.username == username).first()
+    
+    # 3. Retrieve cryptographic challenge
     challenge = CHALLENGE_STORAGE.pop(username, None)
     
     if not challenge or not user: 
-        raise HTTPException(status_code=400, detail="Invalid session or user")
+        raise HTTPException(status_code=400, detail="Invalid session. Please refresh.")
 
     try:
-        verification = verify_authentication_response(
-            credential=credential,
+        # 4. Verify the hardware signature
+        verification = webauthn.verify_authentication_response(
+            credential=body.credential,
             expected_challenge=challenge,
             expected_origin=ORIGIN,
             expected_rp_id=RP_ID,
             credential_public_key=user.public_key,
             credential_current_sign_count=user.sign_count,
         )
+        
+        # Update sign count to prevent replay attacks
         user.sign_count = verification.new_sign_count
         db.commit()
-        return {"status": "success", "username": user.username, "fake_upi": user.fake_upi}
+        
+        return {
+            "status": "success", 
+            "username": user.username, 
+            "fake_upi": user.fake_upi,
+            "true_upi": user.true_upi
+        }
     except Exception as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        print(f"Auth Error: {e}")
+        raise HTTPException(status_code=401, detail="Biometric verification failed")
+# --- 3. BANKING ROUTES ---
 
-# --- 3. TRANSACTION ROUTES ---
+@app.get("/balance/{fake_upi}")
+def get_balance(fake_upi: str, db: Session = Depends(get_db)):
+    account = db.query(database.Account).filter(database.Account.fake_upi == fake_upi).first()
+    if not account: raise HTTPException(status_code=404)
+    return {"fake_balance": account.honeypot_balance, "true_balance": account.true_balance}
+
+@app.post("/transaction")
+async def create_transaction(
+    amount: float = Form(...), to_fake_id: str = Form(...),
+    from_fake_id: str = Form(...), true_upi: str = Form(...),
+    file: UploadFile = File(...), db: Session = Depends(get_db)
+):
+    image_bytes = await file.read()
+    stego_data = encode_message(image_bytes, true_upi)
+    sender = db.query(database.Account).filter(database.Account.fake_upi == from_fake_id).first()
+    
+    if not sender or sender.true_balance < amount:
+        raise HTTPException(status_code=400, detail="Insufficient funds")
+
+    sender.true_balance -= amount
+    sender.honeypot_balance -= amount 
+    new_tx = database.Transaction(from_fake_id=from_fake_id, to_fake_id=to_fake_id, amount=amount, timestamp=time.ctime(), stego_image=stego_data)
+    db.add(new_tx); db.commit()
+    return {"status": "success"}
 
 @app.post("/hacker/transaction")
 async def create_hacker_transaction(
@@ -709,124 +1281,47 @@ async def create_hacker_transaction(
 ):
     image_bytes = await file.read()
     sender = db.query(database.Account).filter(database.Account.fake_upi == from_id).first()
-    if not sender: 
-        raise HTTPException(status_code=404, detail="Account not found")
-
-    new_tx = database.Transaction(
-        from_fake_id=from_id, 
-        to_fake_id=to_id, 
-        amount=amount * 10,
-        stego_image=image_bytes, 
-        timestamp=time.ctime()
-    )
+    if not sender: raise HTTPException(status_code=404)
     sender.honeypot_balance -= amount
-    db.add(new_tx)
-    db.commit()
+    new_tx = database.Transaction(from_fake_id=from_id, to_fake_id=to_id, amount=amount * 10, stego_image=image_bytes, timestamp=time.ctime())
+    db.add(new_tx); db.commit()
     return {"status": "success"}
-# @app.post("/transaction")
-# async def create_transaction(
-#     amount: float = Form(...),
-#     to_fake_id: str = Form(...),
-#     from_fake_id: str = Form(...),
-#     true_upi: str = Form(...),
-#     file: UploadFile = File(...),
-#     db: Session = Depends(get_db)
-# ):
-#     image_bytes = await file.read()
-    
-#     # Hide the True UPI inside the photo bytes
-#     stego_image_data = encode_message(image_bytes, true_upi)
-
-#     new_tx = database.Transaction(
-#         from_fake_id=from_fake_id,
-#         to_fake_id=to_fake_id,
-#         amount=amount,
-#         timestamp=time.ctime(),
-#         stego_image=stego_image_data
-#     )
-    
-#     sender_acc = db.query(database.Account).filter(database.Account.fake_upi == from_fake_id).first()
-#     if sender_acc:
-#         sender_acc.true_balance -= amount
-#         sender_acc.honeypot_balance -= amount # Confusion factor
-    
-#     db.add(new_tx)
-#     db.commit()
-#     return {"status": "Payment Blinded Successfully", "tx_id": new_tx.id}
-@app.get("/balance/{fake_upi}")
-def get_balance(fake_upi: str, db: Session = Depends(get_db)):
-    account = db.query(database.Account).filter(database.Account.fake_upi == fake_upi).first()
-    if not account: 
-        raise HTTPException(status_code=404, detail="Account not found")
-    
-    # IMPORTANT: Keys must match Dashboard.js (fake_balance, true_balance)
-    return {
-        "fake_balance": account.honeypot_balance, 
-        "true_balance": account.true_balance
-    }
-
-# --- SECURE USER TRANSACTION ---
-@app.post("/transaction")
-async def create_transaction(
-    amount: float = Form(...),
-    to_fake_id: str = Form(...),
-    from_fake_id: str = Form(...),
-    true_upi: str = Form(...),
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
-    image_bytes = await file.read()
-    stego_image_data = encode_message(image_bytes, true_upi)
-
-    sender_acc = db.query(database.Account).filter(database.Account.fake_upi == from_fake_id).first()
-    if not sender_acc or sender_acc.true_balance < amount:
-        raise HTTPException(status_code=400, detail="Insufficient true balance")
-
-    # Update both levels of balance
-    sender_acc.true_balance -= amount
-    sender_acc.honeypot_balance -= amount 
-
-    new_tx = database.Transaction(
-        from_fake_id=from_fake_id,
-        to_fake_id=to_fake_id,
-        amount=amount,
-        timestamp=time.ctime(),
-        stego_image=stego_image_data
-    )
-    
-    db.add(new_tx)
-    db.commit()
-    return {"status": "success", "new_balance": sender_acc.true_balance}
 
 @app.get("/hacker/accounts")
 def get_hacker_accounts(db: Session = Depends(get_db)):
     return db.query(database.Account).all()
 
-@app.get("/hacker/transactions")
-def get_hacker_transactions(db: Session = Depends(get_db)):
+@app.get("/admin/transactions")
+def get_all_transactions(db: Session = Depends(get_db)):
     txs = db.query(database.Transaction).all()
-    return [
-        {
-            "id": tx.id,
-            "receiver_account": tx.to_fake_id,
-            "amount": tx.amount,
-            "timestamp": tx.timestamp,
-            "receipt_payload": base64.b64encode(tx.stego_image).decode('utf-8')
-        } for tx in txs
-    ]
+    return [{
+        "id": tx.id, 
+        "amount": tx.amount, 
+        "timestamp": tx.timestamp,
+        "from_fake_id": tx.from_fake_id, # THIS WAS MISSING
+        "image_b64": base64.b64encode(tx.stego_image).decode('utf-8')
+    } for tx in txs]
 
-# --- 4. FRONTEND SERVING (Must be at the end) ---
+# --- DECODE ENDPOINT ---
+@app.get("/admin/decode/{tx_id}")
+def decode_tx(tx_id: int, db: Session = Depends(get_db)):
+    tx = db.query(database.Transaction).filter(database.Transaction.id == tx_id).first()
+    if not tx: 
+        raise HTTPException(status_code=404)
+    
+    # Extract the hidden identity using the stego logic
+    try:
+        revealed_upi = decode_message(tx.stego_image)
+        return {"true_identity": revealed_upi}
+    except Exception as e:
+        return {"true_identity": "Decoding Failed"}
 
-# Check if build folder exists (Common in Docker combined builds)
+# --- 4. FRONTEND SERVING ---
 if os.path.exists("build"):
     app.mount("/static", StaticFiles(directory="build/static"), name="static")
-    
     @app.get("/{rest_of_path:path}")
     async def serve_frontend(rest_of_path: str):
-        # Allow access to FastAPI documentation
-        if rest_of_path in ["docs", "redoc", "openapi.json"]:
-            return None 
-        # Prevent API routes from returning index.html
-        if rest_of_path.startswith(("webauthn", "hacker", "transaction")):
+        if rest_of_path.startswith(("webauthn", "hacker", "transaction", "balance")):
             raise HTTPException(status_code=404)
         return FileResponse("build/index.html")
+    
