@@ -512,12 +512,17 @@ import uuid
 import os
 import io
 
-# Your custom modules (make sure database.py and schemas.py are in the backend folder)
+# Your custom modules
 import database, schemas
 
-# --- WEBAUTHN IMPORTS (Fixed for v2.0+) ---
-import webauthn
-from webauthn.helpers.options_to_json import options_to_json
+# --- WEBAUTHN IMPORTS (Fixed for py-webauthn v2.0+) ---
+from webauthn import (
+    generate_registration_options,
+    verify_registration_response,
+    generate_authentication_options,
+    verify_authentication_response,
+    options_to_json,
+)
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria, 
     AuthenticatorAttachment, 
@@ -528,23 +533,24 @@ from webauthn.helpers.structs import (
 app = FastAPI()
 
 # --- DYNAMIC CONFIGURATION FOR DEPLOYMENT ---
-# Render provides the URL in RENDER_EXTERNAL_HOSTNAME
-RENDER_DOMAIN = os.getenv("RENDER_EXTERNAL_HOSTNAME", "localhost")
-RP_ID = RENDER_DOMAIN
-RP_NAME = "Aegis Secure Bank"
+# Render provides the URL in RENDER_EXTERNAL_HOSTNAME (e.g., myapp.onrender.com)
+RENDER_HOST = os.getenv("RENDER_EXTERNAL_HOSTNAME")
 
-# Origin logic for WebAuthn security
-if "localhost" in RENDER_DOMAIN:
-    ORIGIN = "http://localhost:3000"
+if RENDER_HOST:
+    RP_ID = RENDER_HOST
+    ORIGIN = f"https://{RENDER_HOST}"
 else:
-    ORIGIN = f"https://{RENDER_DOMAIN}"
+    RP_ID = "localhost"
+    ORIGIN = "http://localhost:3000"
+
+RP_NAME = "Aegis Secure Bank"
 
 # Temporary challenge storage
 CHALLENGE_STORAGE = {}
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[ORIGIN, f"https://{RENDER_DOMAIN}"],
+    allow_origins=[ORIGIN, "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -602,21 +608,22 @@ def decode_message(image_bytes):
 
 @app.post("/webauthn/register/options")
 def get_reg_options(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(database.User).filter(database.User.username == user_data.username).first()
+    username = user_data.username.lower()
+    existing = db.query(database.User).filter(database.User.username == username).first()
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
 
-    options = webauthn.generate_registration_options(
+    options = generate_registration_options(
         rp_id=RP_ID,
         rp_name=RP_NAME,
         user_id=uuid.uuid4().bytes,
-        user_name=user_data.username,
+        user_name=username,
         authenticator_selection=AuthenticatorSelectionCriteria(
             authenticator_attachment=AuthenticatorAttachment.PLATFORM, 
             user_verification=UserVerificationRequirement.REQUIRED
         ),
     )
-    CHALLENGE_STORAGE[user_data.username] = {
+    CHALLENGE_STORAGE[username] = {
         "challenge": options.challenge,
         "user_data": user_data 
     }
@@ -624,12 +631,13 @@ def get_reg_options(user_data: schemas.UserCreate, db: Session = Depends(get_db)
 
 @app.post("/webauthn/register/verify")
 async def verify_reg(username: str, credential: dict, db: Session = Depends(get_db)):
+    username = username.lower()
     stored = CHALLENGE_STORAGE.pop(username, None)
     if not stored:
         raise HTTPException(status_code=400, detail="Registration session expired.")
     
     try:
-        verification = webauthn.verify_registration_response(
+        verification = verify_registration_response(
             credential=credential,
             expected_challenge=stored["challenge"],
             expected_origin=ORIGIN,
@@ -638,7 +646,7 @@ async def verify_reg(username: str, credential: dict, db: Session = Depends(get_
         
         randomized_node_id = f"AEGIS-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}"
         new_user = database.User(
-            username=stored["user_data"].username,
+            username=username,
             true_upi=stored["user_data"].trueUpi,
             fake_upi=randomized_node_id,
             credential_id=verification.credential_id,
@@ -646,32 +654,39 @@ async def verify_reg(username: str, credential: dict, db: Session = Depends(get_
             sign_count=verification.sign_count
         )
         new_account = database.Account(fake_upi=randomized_node_id, honeypot_balance=100.0, true_balance=5000.0)
-        db.add(new_user); db.add(new_account); db.commit()
+        db.add(new_user)
+        db.add(new_account)
+        db.commit()
         return {"status": "success", "blinded_id": randomized_node_id}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/webauthn/login/options")
 def get_log_options(username: str, db: Session = Depends(get_db)):
-    user = db.query(database.User).filter(database.User.username == username.lower()).first()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
+    username = username.lower()
+    user = db.query(database.User).filter(database.User.username == username).first()
+    if not user: 
+        raise HTTPException(status_code=404, detail="User not found")
 
-    options = webauthn.generate_authentication_options(
+    options = generate_authentication_options(
         rp_id=RP_ID,
         allow_credentials=[PublicKeyCredentialDescriptor(id=user.credential_id)],
         user_verification=UserVerificationRequirement.REQUIRED, 
     )
-    CHALLENGE_STORAGE[username.lower()] = options.challenge
+    CHALLENGE_STORAGE[username] = options.challenge
     return Response(content=options_to_json(options), media_type="application/json")
 
 @app.post("/webauthn/login/verify")
 async def verify_log(username: str, credential: dict, db: Session = Depends(get_db)):
-    user = db.query(database.User).filter(database.User.username == username.lower()).first()
-    challenge = CHALLENGE_STORAGE.pop(username.lower(), None)
-    if not challenge or not user: raise HTTPException(status_code=400, detail="Invalid session")
+    username = username.lower()
+    user = db.query(database.User).filter(database.User.username == username).first()
+    challenge = CHALLENGE_STORAGE.pop(username, None)
+    
+    if not challenge or not user: 
+        raise HTTPException(status_code=400, detail="Invalid session or user")
 
     try:
-        verification = webauthn.verify_authentication_response(
+        verification = verify_authentication_response(
             credential=credential,
             expected_challenge=challenge,
             expected_origin=ORIGIN,
@@ -686,6 +701,7 @@ async def verify_log(username: str, credential: dict, db: Session = Depends(get_
         raise HTTPException(status_code=401, detail=str(e))
 
 # --- 3. TRANSACTION ROUTES ---
+
 @app.post("/hacker/transaction")
 async def create_hacker_transaction(
     amount: float = Form(...), to_id: str = Form(...), from_id: str = Form(...),
@@ -693,14 +709,19 @@ async def create_hacker_transaction(
 ):
     image_bytes = await file.read()
     sender = db.query(database.Account).filter(database.Account.fake_upi == from_id).first()
-    if not sender: raise HTTPException(status_code=404, detail="Account not found")
+    if not sender: 
+        raise HTTPException(status_code=404, detail="Account not found")
 
     new_tx = database.Transaction(
-        from_fake_id=from_id, to_fake_id=to_id, amount=amount * 10,
-        stego_image=image_bytes, timestamp=time.ctime()
+        from_fake_id=from_id, 
+        to_fake_id=to_id, 
+        amount=amount * 10,
+        stego_image=image_bytes, 
+        timestamp=time.ctime()
     )
     sender.honeypot_balance -= amount
-    db.add(new_tx); db.commit()
+    db.add(new_tx)
+    db.commit()
     return {"status": "success"}
 
 @app.get("/hacker/accounts")
@@ -720,14 +741,18 @@ def get_hacker_transactions(db: Session = Depends(get_db)):
         } for tx in txs
     ]
 
-# --- 4. FRONTEND SERVING ---
-# Catch-all route to serve the React index.html
+# --- 4. FRONTEND SERVING (Must be at the end) ---
+
+# Check if build folder exists (Common in Docker combined builds)
 if os.path.exists("build"):
     app.mount("/static", StaticFiles(directory="build/static"), name="static")
     
     @app.get("/{rest_of_path:path}")
     async def serve_frontend(rest_of_path: str):
-        # Do not intercept API calls
-        if rest_of_path.startswith(("webauthn", "hacker", "admin", "transaction", "static")):
+        # Allow access to FastAPI documentation
+        if rest_of_path in ["docs", "redoc", "openapi.json"]:
+            return None 
+        # Prevent API routes from returning index.html
+        if rest_of_path.startswith(("webauthn", "hacker", "transaction")):
             raise HTTPException(status_code=404)
         return FileResponse("build/index.html")
