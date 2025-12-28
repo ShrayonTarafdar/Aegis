@@ -102,7 +102,7 @@ const Dashboard = () => {
 
   // 1. Standalone fetch function
   const fetchBalances = (fakeUpi) => {
-    fetch(`http://localhost:8000/balance/${fakeUpi}`)
+    fetch(`/balance/${fakeUpi}`)
       .then((res) => {
         if (!res.ok) throw new Error("Balance fetch failed");
         return res.json();
