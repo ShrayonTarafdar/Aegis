@@ -723,6 +723,36 @@ async def create_hacker_transaction(
     db.add(new_tx)
     db.commit()
     return {"status": "success"}
+@app.post("/transaction")
+async def create_transaction(
+    amount: float = Form(...),
+    to_fake_id: str = Form(...),
+    from_fake_id: str = Form(...),
+    true_upi: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    image_bytes = await file.read()
+    
+    # Hide the True UPI inside the photo bytes
+    stego_image_data = encode_message(image_bytes, true_upi)
+
+    new_tx = database.Transaction(
+        from_fake_id=from_fake_id,
+        to_fake_id=to_fake_id,
+        amount=amount,
+        timestamp=time.ctime(),
+        stego_image=stego_image_data
+    )
+    
+    sender_acc = db.query(database.Account).filter(database.Account.fake_upi == from_fake_id).first()
+    if sender_acc:
+        sender_acc.true_balance -= amount
+        sender_acc.honeypot_balance -= amount # Confusion factor
+    
+    db.add(new_tx)
+    db.commit()
+    return {"status": "Payment Blinded Successfully", "tx_id": new_tx.id}
 
 @app.get("/hacker/accounts")
 def get_hacker_accounts(db: Session = Depends(get_db)):

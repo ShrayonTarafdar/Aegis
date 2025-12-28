@@ -4,8 +4,8 @@ import { useNavigate } from "react-router-dom";
 const Dashboard = () => {
   const [user, setUser] = useState(null);
   const [balances, setBalances] = useState({
-    fake_balance: 0,
-    true_balance: 0,
+    fake_balance: 100,
+    true_balance: 5000,
   });
   const navigate = useNavigate();
 
