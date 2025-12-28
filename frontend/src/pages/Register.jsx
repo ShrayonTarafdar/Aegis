@@ -20,7 +20,7 @@ const Register = () => {
     try {
       // --- STEP 1: Get Registration Options from Backend ---
       // We send the user info to the backend to get a cryptographic challenge
-      const optionsResponse = await fetch("/webauthn/register/options", {
+      const optionsResponse = await fetch("http://localhost:8000/webauthn/register/options", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
